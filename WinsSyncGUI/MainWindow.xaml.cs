@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Security.Cryptography;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -37,18 +38,22 @@ namespace WinsSyncGUI
             // Try to load credentials from a file, if successful, put them in the form.
             // If there's something wrong with them, delete them.
             winsSync = new WinsSync();
-            try
-            {
-                winsSync.LoadLoginCreds();
-                textBox.Text = winsSync.Username;
-                passwordBox.Password = winsSync.Password;
-            }
-            //todo: fix the dll, throws null reference exception if they don't exist at all.
-            // We do catch it and handle it (by doing nothing), but it's not a good implementation.
-            catch (Exception)
-            {
-                winsSync.DeleteLoginCreds();
-            }
+            //try
+            //{
+            //    winsSync.LoadLoginCreds();
+            //    textBox.Text = winsSync.Username;
+            //    passwordBox.Password = winsSync.ConvertToUnsecureString(winsSync.getSPassword());
+            //}
+            ////todo: fix the dll, throws null reference exception if the files don't exist at all.
+            //// We do catch it and handle it (by doing nothing), but it's not a good implementation.
+            //catch (CryptographicException)
+            //{
+            //    winsSync.DeleteLoginCreds();
+            //}
+            //catch(NullReferenceException)
+            //{
+            //    //do nothing
+            //}
         }
 
         private void startButton_Click(object sender, RoutedEventArgs e)
@@ -60,7 +65,7 @@ namespace WinsSyncGUI
             {
                 winsSync.Username += "@Wegmans.com";
             }
-            winsSync.Password = passwordBox.Password;
+            winsSync.setSPassword(passwordBox.SecurePassword);
             if (!backgroundWorker.IsBusy)  // Makes sure clicking more than once doesn't crash it.
             {
                 backgroundWorker.RunWorkerAsync();
@@ -78,11 +83,6 @@ namespace WinsSyncGUI
 
         private void backgroundWorker_DoWork(object sender, DoWorkEventArgs e)
         {
-
-            //if (checkBox1.Checked)  //todo: this doesn't work, handle it properly in the dll.
-            //{
-            //    winsSync.SaveLoginCreds();
-            //}
             winsSync.SetupGoogleCreds();
             backgroundWorker.ReportProgress(20);
             int retries = 5;
