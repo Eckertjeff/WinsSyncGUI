@@ -20,6 +20,8 @@ using Google.Apis.Requests;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Support.UI;
 using OpenQA.Selenium.PhantomJS;
+using System.Security;
+using System.Runtime.InteropServices;
 //using OpenQA.Selenium.Firefox;
 
 public class Cell
@@ -247,6 +249,7 @@ public class WinsSync
     private string calendarid = "primary";
     private string username;
     private string password;
+    private SecureString securePwd;
     private string automate;
     private bool savedlogin;
     private UserCredential credential;
@@ -266,19 +269,6 @@ public class WinsSync
         set
         {
             username = value;
-        }
-    }
-
-    public string Password
-    {
-        get
-        {
-            return password;
-        }
-
-        set
-        {
-            password = value;
         }
     }
 
@@ -425,12 +415,18 @@ public class WinsSync
         }
     }
 
+    public void setSPassword(SecureString password)
+    {
+        securePwd = password;
+    }
+
     public WinsSync()
     {
         Username = string.Empty;
-        Password = string.Empty;
+        password = string.Empty;
         Automate = string.Empty;
         Savedlogin = false;
+        securePwd = new SecureString();
         Schedules = new List<string>();
         CorrectTable = new List<string>();
         Rows = new List<Row>();
@@ -486,7 +482,10 @@ public class WinsSync
                 ptcreds = Encoding.UTF8.GetString(credbytes);
                 creds = ptcreds.Split('\n');
                 Username = creds[0];
-                Password = creds[1];
+                for (int i = 0; i < creds[1].Length; i++)
+                {
+                    securePwd.AppendChar(creds[1][i]);
+                }
                 Savedlogin = true;
                 try
                 {
@@ -528,43 +527,55 @@ public class WinsSync
         }
         Console.Write("Please Enter your password: ");
         const int ENTER = 13, BACKSP = 8, CTRLBACKSP = 127;
-        int[] FILTERED = { 0, 27, 9, 10 /*, 32 space, if you care */ };
-        Stack<char> pass = new Stack<char>();
+        int[] FILTERED = { 0, 27, 9, 10 /*, 32 space */ };
         char chr = (char)0;
 
-        while ((chr = System.Console.ReadKey(true).KeyChar) != ENTER)
+        while ((chr = Console.ReadKey(true).KeyChar) != ENTER)
         {
             if (chr == BACKSP)
             {
-                if (pass.Count > 0)
+                if (securePwd.Length > 0)
                 {
-                    System.Console.Write("\b \b");
-                    pass.Pop();
+                    Console.Write("\b \b");
+                    securePwd.RemoveAt(securePwd.Length - 1);
                 }
             }
             else if (chr == CTRLBACKSP)
             {
-                while (pass.Count > 0)
+                while (securePwd.Length > 0)
                 {
-                    System.Console.Write("\b \b");
-                    pass.Pop();
+                    Console.Write("\b \b");
+                    securePwd.RemoveAt(securePwd.Length - 1);
                 }
             }
             else if (FILTERED.Count(x => chr == x) > 0) { }
             else
             {
-                pass.Push((char)chr);
-                System.Console.Write("*");
+                securePwd.AppendChar(chr);
+                Console.Write("*");
             }
         }
         Console.WriteLine();
 
-        // Popping the password off the stack will result in a reversed password,
-        // So let's flip it.
-        string revpassword = string.Join("", pass.ToArray());
-        char[] revArray = revpassword.ToCharArray();
-        Array.Reverse(revArray);
-        Password = new string(revArray);
+        //Password = ConvertToUnsecureString(securePwd);
+    }
+
+    public string ConvertToUnsecureString(SecureString securePassword)
+    {
+        // Taken from: http://blogs.msdn.com/b/fpintos/archive/2009/06/12/how-to-properly-convert-securestring-to-string.aspx
+        if (securePassword == null)
+            throw new ArgumentNullException("securePassword is Null");
+
+        IntPtr unmanagedString = IntPtr.Zero;
+        try
+        {
+            unmanagedString = Marshal.SecureStringToGlobalAllocUnicode(securePassword);
+            return Marshal.PtrToStringUni(unmanagedString);
+        }
+        finally
+        {
+            Marshal.ZeroFreeGlobalAllocUnicode(unmanagedString);
+        }
     }
 
     public void SaveLoginCreds(string automate = "")
@@ -575,7 +586,9 @@ public class WinsSync
         string logincreds = string.Empty;
         if (automate == "Automate")
         {
-            logincreds = Username + "\n" + Password + "\n" + automate;
+            password = ConvertToUnsecureString(securePwd);
+            logincreds = Username + "\n" + password + "\n" + automate;
+            ClearPassword();
             byte[] plaintextcreds = Encoding.UTF8.GetBytes(logincreds);
             byte[] entropy = new byte[20];
             using (RNGCryptoServiceProvider rng = new RNGCryptoServiceProvider())
@@ -594,14 +607,15 @@ public class WinsSync
             Console.Write("Would you like to save your login info? Y/N: ");
             if (Console.ReadLine().Equals("y", StringComparison.OrdinalIgnoreCase))
             {
-                logincreds = Username + "\n" + Password;
+                password = ConvertToUnsecureString(securePwd);
+                logincreds = Username + "\n" + password;
+                ClearPassword();
                 byte[] plaintextcreds = Encoding.UTF8.GetBytes(logincreds);
                 byte[] entropy = new byte[20];
                 using (RNGCryptoServiceProvider rng = new RNGCryptoServiceProvider())
                 {
                     rng.GetBytes(entropy);
                 }
-
                 byte[] encryptedcreds = ProtectedData.Protect(plaintextcreds, entropy, DataProtectionScope.CurrentUser);
                 File.WriteAllBytes(logincredPath, encryptedcreds);
                 File.WriteAllBytes(entropyPath, entropy);
@@ -656,7 +670,9 @@ public class WinsSync
                 throw new ScheduleGETException("Password input box did not load correctly.");
             }
             IWebElement passwordentry = driver.FindElement(By.XPath("//*[@id='passwordInput']"));
-            passwordentry.SendKeys(Password);
+            password = ConvertToUnsecureString(securePwd);
+            passwordentry.SendKeys(password);
+            ClearPassword();
             passwordentry.Submit();
         }
 
@@ -683,7 +699,9 @@ public class WinsSync
                     GetLoginCreds();
                     Console.WriteLine("Trying again...");
                     usernameentry.SendKeys(Username);
-                    passwordentry.SendKeys(Password);
+                    password = ConvertToUnsecureString(securePwd);
+                    passwordentry.SendKeys(password);
+                    ClearPassword();
                     passwordentry.Submit();
                 }
                 SaveLoginCreds();
@@ -728,7 +746,9 @@ public class WinsSync
                 usernameentry.Clear();
                 passwordentry.Clear();
                 usernameentry.SendKeys(Username);
-                passwordentry.SendKeys(Password);
+                password = ConvertToUnsecureString(securePwd);
+                passwordentry.SendKeys(password);
+                ClearPassword();
                 passwordentry.Submit();
             }
             else
@@ -765,7 +785,7 @@ public class WinsSync
             driver.FindElement(By.XPath("//*[@id='pageBody']/form/table[2]/tbody/tr[2]/td/table/tbody/tr[2]/td/table/tbody/tr/td/div/table[1]/tbody/tr/td[1]/a[3]")).Click();
             Schedules.Add(driver.PageSource.ToString());
         }
-
+        ClearPassword(); // We don't need the password anymore, so let's not keep it laying around.
         driver.Quit();
         Console.WriteLine("Got your Schedule.");
     }
@@ -1048,5 +1068,10 @@ public class WinsSync
         CorrectTable = new List<string>();
         Rows = new List<Row>();
         Schedule = new List<WorkDay>();
+    }
+
+    public void ClearPassword()
+    {
+        password = "";
     }
 }
